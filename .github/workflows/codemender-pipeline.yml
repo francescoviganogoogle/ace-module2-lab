@@ -71,7 +71,7 @@ jobs:
 
     steps:
       - name: Checkout Code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           fetch-depth: 0          # full history so cm can evaluate code context
 
@@ -101,7 +101,7 @@ jobs:
       # GOOGLE_APPLICATION_CREDENTIALS + GOOGLE_CLOUD_PROJECT for all later
       # steps — exactly what `cm` reads. No key is involved at any point.
       - name: Authenticate to Google Cloud (WIF / ADC)
-        uses: google-github-actions/auth@v2
+        uses: google-github-actions/auth@v3
         with:
           workload_identity_provider: ${{ vars.GCP_WIF_PROVIDER }}
           service_account: ${{ vars.GCP_SA_EMAIL }}
@@ -119,8 +119,14 @@ jobs:
           fi
           # Copy out of the checkout so later steps get a stable `cm` on PATH
           # and the working tree stays clean for the remediation diff.
+          ## mkdir -p "$RUNNER_TEMP/cmbin"
+          ## install -m 0755 "$CM_BUNDLED" "$RUNNER_TEMP/cmbin/cm"
+          ## echo "$RUNNER_TEMP/cmbin" >> "$GITHUB_PATH"     # cm on PATH for later steps
+          ## "$RUNNER_TEMP/cmbin/cm" --version || true
           mkdir -p "$RUNNER_TEMP/cmbin"
-          install -m 0755 "$CM_BUNDLED" "$RUNNER_TEMP/cmbin/cm"
+          curl -L -o "$RUNNER_TEMP/cm-linux-amd64.zip" "https://artifactregistry.googleapis.com/download/v1/projects/cmoc-prod/locations/us/repositories/codemender-cli-production/files/cm%3Astable%3Acm-linux-amd64.zip:download?alt=media"
+          unzip "$RUNNER_TEMP/cm-linux-amd64.zip" -d "$RUNNER_TEMP"
+          install -m 0755 "$RUNNER_TEMP/cm" "$RUNNER_TEMP/cmbin/cm"
           echo "$RUNNER_TEMP/cmbin" >> "$GITHUB_PATH"     # cm on PATH for later steps
           "$RUNNER_TEMP/cmbin/cm" --version || true
 
@@ -139,7 +145,7 @@ jobs:
         run: |
           set -uo pipefail
           echo "Scanning '$SCAN_PATH' (in-scope source is uploaded to Google's CodeMender service)..."
-          cm find "$SCAN_PATH" -y 2>&1 | tee "$RUNNER_TEMP/cm-find.cm.log"
+          cm find --sandbox=false "$SCAN_PATH" -y 2>&1 | tee "$RUNNER_TEMP/cm-find.cm.log"
 
       - name: Export Security Report (cm report -f json)
         if: ${{ always() && steps.scan.conclusion != 'skipped' }}
@@ -152,7 +158,7 @@ jobs:
 
       - name: Upload Security Report
         if: ${{ always() && steps.scan.conclusion != 'skipped' }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: codemender-report
           path: ${{ runner.temp }}/cm-security-report.json
